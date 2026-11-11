@@ -1,0 +1,41 @@
+{
+  "addons": [
+    {
+      "id": "mediaplayer",
+      "name": "Media Player",
+      "description": "Local audio and video playback with playlists, artwork, visualizations and fullscreen through libmpv.",
+      "version": "0.1.0",
+      "mod_version": "3.14.0",
+      "type": "plugin",
+      "path": "plugins/mediaplayer",
+      "arch": "*",
+      "files": [
+        {
+          "arch": "x86_64-linux",
+          "url": "https://github.com/pragtical/mediaplayer/releases/download/latest/mpv.x86_64-linux.so",
+          "checksum": "SKIP"
+        },
+        {
+          "arch": "aarch64-linux",
+          "url": "https://github.com/pragtical/mediaplayer/releases/download/latest/mpv.aarch64-linux.so",
+          "checksum": "SKIP"
+        },
+        {
+          "arch": "x86_64-darwin",
+          "url": "https://github.com/pragtical/mediaplayer/releases/download/latest/mpv.x86_64-darwin.so",
+          "checksum": "SKIP"
+        },
+        {
+          "arch": "aarch64-darwin",
+          "url": "https://github.com/pragtical/mediaplayer/releases/download/latest/mpv.aarch64-darwin.so",
+          "checksum": "SKIP"
+        },
+        {
+          "arch": "x86_64-windows",
+          "url": "https://github.com/pragtical/mediaplayer/releases/download/latest/mpv.x86_64-windows.dll",
+          "checksum": "SKIP"
+        }
+      ]
+    }
+  ]
+}

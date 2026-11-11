@@ -1,0 +1,131 @@
+{
+  "mpv": {
+    "version": "0.42.0",
+    "url": "https://codeload.github.com/mpv-player/mpv/tar.gz/refs/tags/v0.42.0",
+    "filename": "mpv-0.42.0.tar.gz",
+    "sha256": "bcfebbfa2b65a6d88dc97ea18117831072373e38b5785a2afb874ed4df5070dd",
+    "licenses": [
+      "LICENSE.LGPL",
+      "Copyright"
+    ]
+  },
+  "ffmpeg": {
+    "version": "9.0.2",
+    "url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/n9.0.2",
+    "filename": "ffmpeg-9.0.2.tar.gz",
+    "sha256": "6e374ed621e48faa40639307dff48ba6fe574a509977956d2cce9669b7cc27e9",
+    "licenses": [
+      "COPYING.LGPLv2.1",
+      "LICENSE.md"
+    ]
+  },
+  "dav1d": {
+    "version": "1.5.4",
+    "url": "https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz",
+    "filename": "dav1d-1.5.4.tar.xz",
+    "sha256": "686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5",
+    "licenses": [
+      "COPYING"
+    ]
+  },
+  "libplacebo": {
+    "version": "7.387.0",
+    "url": "https://codeload.github.com/haasn/libplacebo/tar.gz/refs/tags/v7.387.0",
+    "filename": "libplacebo-7.387.0.tar.gz",
+    "sha256": "f9e62d3774a9c4cfd198ec3abaa88294aaade2e31c04d5ab02bcf4abc98b1df5",
+    "licenses": [
+      "LICENSE"
+    ]
+  },
+  "freetype": {
+    "version": "2.15.0",
+    "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+    "filename": "freetype-2.15.0.tar.xz",
+    "sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
+    "licenses": [
+      "docs/FTL.TXT"
+    ]
+  },
+  "harfbuzz": {
+    "version": "13.0.1",
+    "url": "https://github.com/harfbuzz/harfbuzz/releases/download/13.0.1/harfbuzz-13.0.1.tar.xz",
+    "filename": "harfbuzz-13.0.1.tar.xz",
+    "sha256": "3553d943401c34ab9b8c75f35cdb8452ca660233b0e9d4a22395ce5245484bd7",
+    "licenses": [
+      "COPYING"
+    ]
+  },
+  "fribidi": {
+    "version": "1.0.16",
+    "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz",
+    "filename": "fribidi-1.0.16.tar.xz",
+    "sha256": "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
+    "licenses": [
+      "COPYING"
+    ]
+  },
+  "libass": {
+    "version": "0.17.5",
+    "url": "https://codeload.github.com/libass/libass/tar.gz/refs/tags/0.17.5",
+    "filename": "libass-0.17.5.tar.gz",
+    "sha256": "fa286fc9ee1ba3b932703a3df7b8474d01dc8abe29ec69b6fa68781dc4bf7acc",
+    "licenses": [
+      "COPYING"
+    ]
+  },
+  "sdl2": {
+    "version": "2.32.10",
+    "url": "https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz",
+    "filename": "sdl2-2.32.10.tar.gz",
+    "sha256": "5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165",
+    "licenses": [
+      "LICENSE.txt"
+    ]
+  },
+  "fast_float": {
+    "version": "97b54ca9e75f5303507699d27c6b4f4efe4641a1",
+    "url": "https://codeload.github.com/fastfloat/fast_float/tar.gz/97b54ca9e75f5303507699d27c6b4f4efe4641a1",
+    "filename": "fast_float-97b54ca9e75f5303507699d27c6b4f4efe4641a1.tar.gz",
+    "sha256": "2b132274539286e41f37857cac22aa8441d21bd86d55de825a3342b149f66801",
+    "licenses": [
+      "LICENSE-MIT",
+      "LICENSE-APACHE",
+      "LICENSE-BOOST"
+    ]
+  },
+  "libdrm": {
+    "version": "2.4.124",
+    "url": "https://dri.freedesktop.org/libdrm/libdrm-2.4.124.tar.xz",
+    "filename": "libdrm-2.4.124.tar.xz",
+    "sha256": "ac36293f61ca4aafaf4b16a2a7afff312aa4f5c37c9fbd797de9e3c0863ca379",
+    "licenses": [
+      "xf86drm.c",
+      "xf86drmHash.c",
+      "xf86drmRandom.c",
+      "xf86drmSL.c",
+      "xf86drmMode.c"
+    ]
+  },
+  "libva": {
+    "version": "2.24.1",
+    "url": "https://codeload.github.com/intel/libva/tar.gz/refs/tags/2.24.1",
+    "filename": "libva-2.24.1.tar.gz",
+    "sha256": "0b4a3649ee8d683b9cce2ef094df4fb039d276c0cef7e49337c43d3b297b9f42",
+    "licenses": [
+      "COPYING"
+    ]
+  },
+  "nvcodec": {
+    "version": "12.2.72.0",
+    "url": "https://codeload.github.com/FFmpeg/nv-codec-headers/tar.gz/refs/tags/n12.2.72.0",
+    "filename": "nv-codec-headers-12.2.72.0.tar.gz",
+    "sha256": "dbeaec433d93b850714760282f1d0992b1254fc3b5a6cb7d76fc1340a1e47563",
+    "licenses": [
+      "include/ffnvcodec/dynlink_cuda.h",
+      "include/ffnvcodec/dynlink_cuviddec.h",
+      "include/ffnvcodec/dynlink_loader.h",
+      "include/ffnvcodec/dynlink_nvcuvid.h",
+      "include/ffnvcodec/nvEncodeAPI.h"
+    ]
+  }
+}

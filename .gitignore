@@ -1,0 +1,11 @@
+.build/
+build/
+dist/
+.venv/
+.pragtical/
+__pycache__/
+*.so
+*.so.*
+*.dylib
+*.dll
+*.pyc

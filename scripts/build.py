@@ -69,6 +69,13 @@ def install_audio_samples(source_dir):
             "    pragtical_audio_samples_push(ao, data, pos);")
     replace("meson.build", "    'audio/aframe.c',",
             "    'audio/aframe.c',\n    'audio/pragtical_samples.c',")
+    # CoreAudio uses these helpers even when Cocoa window support is disabled.
+    replace("meson.build",
+            "if features['audiounit'] or features['coreaudio'] or features['avfoundation']\n",
+            "if features['audiounit'] or features['coreaudio'] or features['avfoundation']\n"
+            "    if not features['cocoa']\n"
+            "        sources += files('osdep/utils-mac.c')\n"
+            "    endif\n")
 
 
 def host_arch():
@@ -83,8 +90,11 @@ def host_arch():
 
 def run(args, cwd, env):
     """Run an argument vector and stop immediately if a build step fails."""
-    print("+ " + " ".join(str(arg) for arg in args), flush=True)
-    subprocess.run([str(arg) for arg in args], cwd=cwd, env=env, check=True)
+    command = [str(arg) for arg in args]
+    # Windows CreateProcess can choose System32's WSL bash ahead of MSYS2.
+    command[0] = shutil.which(command[0], path=env.get("PATH")) or command[0]
+    print("+ " + " ".join(command), flush=True)
+    subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
 def source(name, spec, downloads, sources):
@@ -117,11 +127,12 @@ def source(name, spec, downloads, sources):
     if unpack.exists():
         shutil.rmtree(unpack)
     unpack.mkdir()
+    excluded = {"sdl2": "android-project-ant", "libdrm": "tests"}.get(name)
 
     def extract_member(member, target):
-        # SDL's unused Ant examples have relative links rejected by older
-        # Python data filters. Keep validation for every extracted member.
-        if name == "sdl2" and member.name.split("/", 2)[1:2] == ["android-project-ant"]:
+        # Unused examples/tests contain links rejected by Ubuntu's data filter.
+        # Keep validation for every extracted member.
+        if excluded and member.name.split("/", 2)[1:2] == [excluded]:
             return None
         return tarfile.data_filter(member, target)
 

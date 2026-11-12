@@ -153,7 +153,6 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "dist")
     parser.add_argument("--arch", default=host_arch())
     parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 2))
-    parser.add_argument("--source-bundle", action="store_true", help="also package pinned sources and this build recipe")
     args = parser.parse_args()
     if args.arch != host_arch():
         parser.error("Use a native runner for the requested architecture")
@@ -369,18 +368,6 @@ def main():
         "ffmpeg_features": "local-file playback, software decoding including AV1 via dav1d, and copy-back hardware decoding; no encoding or network",
         "audio_samples": {"frames": 2048, "channels": 2, "nonblocking": True}
     }, indent=2) + "\n")
-    if args.source_bundle:
-        with tarfile.open(output / "sources.tar.gz", "w:gz") as archive:
-            for spec in pins.values():
-                archive.add(build / "downloads" / spec["filename"], arcname="mediaplayer/.build/downloads/" + spec["filename"])
-            for filename in ("sources.json", "manifest.json", "README.md", "LICENSE"):
-                archive.add(ROOT / filename, arcname="mediaplayer/" + filename)
-            archive.add(ROOT / "scripts", arcname="mediaplayer/scripts", filter=lambda entry: None if "__pycache__" in entry.name else entry)
-            archive.add(ROOT / "native", arcname="mediaplayer/native")
-            archive.add(ROOT / "licenses", arcname="mediaplayer/licenses")
-            for path in (ROOT / "plugins").rglob("*"):
-                if path.is_file() and (path.suffix == ".lua" or path.name.startswith("LICENSE")):
-                    archive.add(path, arcname="mediaplayer/" + path.relative_to(ROOT).as_posix())
     print(f"Staged {staged} ({staged.stat().st_size / 1024 / 1024:.1f} MiB)")
 
 

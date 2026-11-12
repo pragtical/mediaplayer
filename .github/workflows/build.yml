@@ -81,10 +81,7 @@ jobs:
           .venv/bin/pip install meson jinja2
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Build minimal runtime
-        run: |
-          extra=()
-          if [[ '${{ matrix.arch }}' == x86_64-linux ]]; then extra+=(--source-bundle); fi
-          python3 scripts/build.py --arch '${{ matrix.arch }}' "${extra[@]}"
+        run: python3 scripts/build.py --arch '${{ matrix.arch }}'
       - name: Check runtime and release files
         run: |
           python3 scripts/check-runtime.py 'dist/mpv.${{ matrix.arch }}.so'
@@ -182,9 +179,8 @@ jobs:
           merge-multiple: true
       - name: Verify complete release
         run: |
-          test -s artifacts/sources.tar.gz
           python3 scripts/check-release.py artifacts --checksums artifacts/SHA256SUMS
-      - name: Publish binaries and corresponding sources
+      - name: Publish native runtimes
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -193,10 +189,13 @@ jobs:
         run: |
           set -euo pipefail
           assets=(artifacts/*.so artifacts/*.dll \
-                  artifacts/*.json artifacts/sources.tar.gz artifacts/SHA256SUMS)
+                  artifacts/*.json artifacts/SHA256SUMS)
           publish() {
             local tag="$1" title="$2" prerelease="$3"
             if gh release view "$tag" >/dev/null 2>&1; then
+              if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq sources.tar.gz; then
+                gh release delete-asset "$tag" sources.tar.gz --yes
+              fi
               gh release upload "$tag" "${assets[@]}" --clobber
               gh release edit "$tag" --title "$title" --notes-file release-notes.md \
                 --prerelease="$prerelease"
@@ -210,7 +209,7 @@ jobs:
 
           PPM downloads the runtime for your platform. License notices are in the repository's licenses directory.
           Manual installs put the library beside plugins/mediaplayer/init.lua.
-          The source archive includes every pinned upstream archive and build recipe.
+          Pinned dependency sources, build scripts and local patches are available in this repository.
           EOF
           if [[ -n "$RELEASE_TAG" ]]; then
             publish "$RELEASE_TAG" "$RELEASE_TAG" false

@@ -170,15 +170,15 @@ cp dist/mpv.x86_64-linux.so plugins/mediaplayer/
 `sources.json` pins and verifies every upstream archive. Extracted sources,
 private static dependencies and work directories stay under `.build/`; staged
 binaries go into `dist/`. The build targets the native architecture. No files
-are installed into the host's system prefix. Adding `--source-bundle` includes
-the pinned archives and build recipe in `dist/sources.tar.gz` for redistribution.
+are installed into the host's system prefix.
 
 ## Releases
 
 Releases provide native libraries for all five supported platforms, build
-information, corresponding sources/build scripts, and `SHA256SUMS`.
+information, and `SHA256SUMS`. Dependency source URLs and checksums are recorded
+in `sources.json`; build scripts and local patches are included in this repository.
 
 The Lua plugin and build scripts are MIT licensed. The LGPL native runtime and its
 dependencies retain their upstream licenses, included in
-[licenses/](licenses/) in this repository and the corresponding source archive.
+[licenses/](licenses/) in this repository.
 The FFT retains its upstream notices in the source comments.

@@ -93,6 +93,17 @@
       "LICENSE-BOOST"
     ]
   },
+  "vulkan_headers": {
+    "version": "74d8a6cb930c68ef617b202c3ff3c59d919e086b",
+    "url": "https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/74d8a6cb930c68ef617b202c3ff3c59d919e086b",
+    "filename": "vulkan-headers-74d8a6cb930c68ef617b202c3ff3c59d919e086b.tar.gz",
+    "sha256": "75967a8288ff16044a86d1af462b96d2e75c435937efb75f2bb4102ab0382f29",
+    "licenses": [
+      "LICENSE.md",
+      "LICENSES/Apache-2.0.txt",
+      "LICENSES/MIT.txt"
+    ]
+  },
   "libdrm": {
     "version": "2.4.124",
     "url": "https://dri.freedesktop.org/libdrm/libdrm-2.4.124.tar.xz",

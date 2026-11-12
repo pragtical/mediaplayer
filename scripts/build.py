@@ -117,8 +117,16 @@ def source(name, spec, downloads, sources):
     if unpack.exists():
         shutil.rmtree(unpack)
     unpack.mkdir()
+
+    def extract_member(member, target):
+        # SDL's unused Ant examples have relative links rejected by older
+        # Python data filters. Keep validation for every extracted member.
+        if name == "sdl2" and member.name.split("/", 2)[1:2] == ["android-project-ant"]:
+            return None
+        return tarfile.data_filter(member, target)
+
     with tarfile.open(archive) as data:
-        data.extractall(unpack, filter="data")
+        data.extractall(unpack, filter=extract_member)
     directories = list(unpack.iterdir())
     if len(directories) != 1 or not directories[0].is_dir():
         raise SystemExit(f"Expected one top-level directory in {archive}")
@@ -212,6 +220,10 @@ def main():
     # Codeload archives omit submodules. libc++ needs this header-only parser.
     shutil.copytree(sources["fast_float"] / "include",
                     sources["libplacebo"] / "3rdparty/fast_float/include",
+                    dirs_exist_ok=True)
+    # Vulkan stubs still include Vulkan types when the backend is disabled.
+    shutil.copytree(sources["vulkan_headers"],
+                    sources["libplacebo"] / "3rdparty/Vulkan-Headers",
                     dirs_exist_ok=True)
     placebo = ["-Ddemos=false", "-Dtests=false"]
     if args.arch.endswith("-darwin"):

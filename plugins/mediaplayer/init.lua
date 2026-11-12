@@ -19,7 +19,10 @@ local Visualizer = require "plugins.mediaplayer.visualizer"
 
 ---@class config.plugins.mediaplayer
 ---@field library string Optional path to the libmpv shared library
+---@field directory string Default directory to scan in new player tabs
+---@field scan_images boolean Include supported images in directory scans
 ---@field hardware_decoding boolean Try copy-back hardware decoding with software fallback
+---@field hdr_to_sdr boolean Tone-map HDR video to the renderer's SDR color space
 ---@field max_fps number Maximum video frames per second; 0 follows the editor's configured limit
 ---@field max_height number Maximum rendered frame height in pixels
 ---@field scaler "auto"|"lanczos"|"fast_bilinear" Scaling quality and CPU cost
@@ -34,12 +37,22 @@ local Visualizer = require "plugins.mediaplayer.visualizer"
 ---@field audio_effect_speed number Visualization animation speed
 ---@field audio_effect_color renderer.color? Optional single-color palette
 config.plugins.mediaplayer = common.merge({
-  library = "", hardware_decoding = true, max_fps = 0, max_height = 1080, volume = 80,
+  library = "", directory = "", hardware_decoding = true, max_fps = 0, max_height = 1080, volume = 80,
   scaler = "auto", cache_mode = "yes", cache_size = 200, cache_wait = 20, cache_initial = true,
+  hdr_to_sdr = false, scan_images = false,
   audio_display = "both", audio_effect = "warp", audio_visualizer_fps = 30,
   audio_effect_speed = 1, audio_effect_color = nil,
   config_spec = {
     name = "Media Player",
+    {
+      label = "Default Directory", path = "directory", type = "directory",
+      default = "", exists = true,
+      description = "Media folder to scan in new tabs. No autoplay."
+    },
+    {
+      label = "Scan Images", path = "scan_images", type = "toggle", default = false,
+      description = "Include supported images in new directory scans."
+    },
     {
       label = "libmpv Library", path = "library", type = "file", default = "",
       description = "Overrides bundled and system libmpv discovery. Requires LuaJIT."
@@ -48,6 +61,10 @@ config.plugins.mediaplayer = common.merge({
       label = "Hardware Decoding", path = "hardware_decoding", type = "toggle",
       default = true,
       description = "Try supported hardware decoders, with automatic software fallback."
+    },
+    {
+      label = "HDR to SDR", path = "hdr_to_sdr", type = "toggle", default = false,
+      description = "Tone-map HDR video for SDR displays. Uses extra CPU; SDR video is unchanged."
     },
     {
       label = "Maximum Frame Rate", path = "max_fps", type = "number",
@@ -145,10 +162,12 @@ end
 ---@param width integer Output width; -2 preserves the input aspect ratio
 ---@param height integer Output height
 ---@param scaler string FFmpeg scaling algorithm
+---@param hdr_to_sdr? boolean Convert HDR primaries and transfer to SDR sRGB
 ---@return string filter libmpv video filter description
-local function scale_filter(width, height, scaler)
-  return string.format("lavfi=[scale=w=%d:h=%d:flags=%s,format=rgba]:o=[threads=%d]",
-    width, height, scaler, filter_threads)
+local function scale_filter(width, height, scaler, hdr_to_sdr)
+  local color = hdr_to_sdr and ":out_primaries=bt709:out_transfer=srgb:intent=perceptual" or ""
+  return string.format("lavfi=[scale=w=%d:h=%d:flags=%s%s,format=rgba]:o=[threads=%d]",
+    width, height, scaler, color, filter_threads)
 end
 
 ---@class plugins.mediaplayer.player
@@ -162,6 +181,8 @@ end
 ---@field aspect number Display aspect ratio
 ---@field frame_rate number Source frame rate, or zero until known
 ---@field scaler string Scaling algorithm used by the current native filter
+---@field hdr boolean Whether the decoded source uses PQ or HLG transfer
+---@field hdr_to_sdr boolean Whether the current native filter tone-maps HDR
 ---@field position number Current playback time in seconds
 ---@field duration number Media duration in seconds
 ---@field paused boolean Whether playback is paused
@@ -234,9 +255,10 @@ function Player:configure_cache(initializing)
 end
 
 ---Initialize an idle client and renderer, leaving media loading to the owning view.
----@param previous? plugins.mediaplayer.player Volume and mute state to retain
+---@param previous? {volume:number, muted:boolean} Volume and mute state to retain
+---@param position? number Saved playback position in seconds
 ---@return plugins.mediaplayer.player
-function Player.new(previous)
+function Player.new(previous, position)
   mpv, ffi = runtime.load()
   local library = mpv
   -- System libmpv remains usable without our optional PCM snapshot extension.
@@ -248,7 +270,8 @@ function Player.new(previous)
     library = library, width = 0, height = 0, pixel_width = 0, pixel_height = 0,
     aspect = 16 / 9, frame_rate = 0,
     scaler = select_scaler(0),
-    position = 0, duration = 0, paused = false, loaded = false, ended = false,
+    hdr = false, hdr_to_sdr = false,
+    position = position or 0, duration = 0, paused = false, loaded = false, ended = false,
     volume = previous and previous.volume or common.clamp(config.plugins.mediaplayer.volume, 0, 100),
     muted = previous and previous.muted or false,
     hardware_decoding = config.plugins.mediaplayer.hardware_decoding ~= false,
@@ -287,6 +310,8 @@ function Player.new(previous)
     options["sub-fonts-dir"] = DATADIR .. PATHSEP .. "fonts"
     options["osd-fonts-dir"] = options["sub-fonts-dir"]
     options["sub-font"], options["osd-font"] = "Fira Sans", "Fira Sans"
+    -- Start at the bookmark before decoding, rather than playing briefly from zero.
+    if position then options.start = tostring(position) end
     for name, value in pairs(options) do
       local result = library.mpv_set_option_string(self.native.handle, name, value)
       -- Scripting options are absent from the minimal runtime's Lua-free build.
@@ -305,6 +330,7 @@ function Player.new(previous)
       ["time-pos"] = 5, duration = 5, pause = 3, volume = 5, mute = 3,
       ["eof-reached"] = 3, ["video-params/aspect"] = 5, ["hwdec-current"] = 1,
       ["container-fps"] = 5, ["paused-for-cache"] = 3, ["cache-buffering-state"] = 5,
+      ["video-params/gamma"] = 1,
       ["video-format"] = 1, ["current-tracks/audio/id"] = 5,
       ["current-tracks/video/albumart"] = 3
     }
@@ -391,6 +417,7 @@ function Player:poll()
         elseif name == "mute" then self.muted = value
         elseif name == "eof-reached" then self.ended = value
         elseif name == "hwdec-current" then self.hardware_decoder = value
+        elseif name == "video-params/gamma" then self.hdr = value == "pq" or value == "hlg"
         elseif name == "paused-for-cache" then self.buffering = value
         elseif name == "cache-buffering-state" then self.cache_percent = value
         elseif name == "video-format" then self.has_video = value ~= ""
@@ -402,6 +429,7 @@ function Player:poll()
         end
         changed = true
       elseif name == "video-format" then self.has_video, changed = false, true
+      elseif name == "video-params/gamma" then self.hdr, changed = false, true
       elseif name == "current-tracks/audio/id" then self.has_audio, changed = false, true
       elseif name == "current-tracks/video/albumart" then self.artwork, changed = false, true
       end
@@ -429,8 +457,9 @@ end
 ---@param height integer Frame height in pixels
 function Player:resize(width, height)
   local scaler = select_scaler(self.frame_rate)
+  local hdr_to_sdr = self.hdr and config.plugins.mediaplayer.hdr_to_sdr ~= false
   local resized = self.width ~= width or self.height ~= height
-  if not resized and self.scaler == scaler then return end
+  if not resized and self.scaler == scaler and self.hdr_to_sdr == hdr_to_sdr then return end
   if resized then
     self.width, self.height = width, height
     local bytes = width * height * 4
@@ -447,8 +476,8 @@ function Player:resize(width, height)
   end
   -- Filtering runs on libmpv's native pipeline. The software render context
   -- normally receives ready-sized RGBA and only copies it into our surface.
-  self:command("vf", "set", scale_filter(width, height, scaler))
-  self.scaler = scaler
+  self:command("vf", "set", scale_filter(width, height, scaler, hdr_to_sdr))
+  self.scaler, self.hdr_to_sdr = scaler, hdr_to_sdr
   self.force = true
 end
 
@@ -516,6 +545,9 @@ end
 ---@field visualizer_player plugins.mediaplayer.player? Source of the current effect history
 ---@field seek_hover number? Timestamp under the pointer on the seek bar
 ---@field seek_hover_x number? Screen X coordinate of the seek tooltip
+---@field volume number Playback volume retained without a native player
+---@field muted boolean Mute state retained without a native player
+---@field resume_position number? Saved bookmark, consumed on Play
 local MediaView = Widget:extend()
 
 ---Create an empty video tab and start a weakly owned event pump.
@@ -526,11 +558,17 @@ function MediaView:new()
   self.message = "Open audio or video, or drop a file here. Requires LuaJIT."
   self.controls, self.controls_visible, self.controls_enabled = {}, true, true
   self.playlist_visible = false
+  self.volume, self.muted = common.clamp(config.plugins.mediaplayer.volume, 0, 100), false
   self.playlist = Playlist(self)
   self.playlist:hide()
   self.playlist.on_play = function(_, track) return self:play(track) end
   self.playlist.on_reset = function()
-    if self.player then self.player:close() self.player = nil end
+    if self.player then
+      self.volume, self.muted = self.player.volume, self.player.muted
+      self.player:close()
+      self.player = nil
+    end
+    self.resume_position = nil
     self.filename, self.name, self.message = nil, "Media Player", "Select a video from the playlist."
   end
   local show_picker = self.playlist.folder.show_picker
@@ -610,6 +648,69 @@ end
 ---Return the tab title.
 ---@return string
 function MediaView:get_name() return self.name end
+
+---Identify the module-level restoration entry point used by workspace.
+---@return string
+function MediaView:get_module() return "plugins.mediaplayer" end
+
+---Save plain playlist data and a bookmark, without retaining native resources.
+---@return table
+function MediaView:get_state()
+  local playlist, player = self.playlist, self.player
+  local tracks = {}
+  for i, track in ipairs(playlist.tracks) do
+    tracks[i] = {path = track.path, folder = track.folder}
+  end
+  local selected = playlist.list.row_data[playlist.list:get_selected() or 0]
+  return {
+    tracks = tracks, directory = playlist.folder:get_path(),
+    current = playlist.current and playlist.current.path,
+    selected = selected and selected.path, filter = playlist.filter:get_text(),
+    scroll = {x = playlist.list.scroll.to.x, y = playlist.list.scroll.to.y},
+    position_seconds = player and player.position or self.resume_position or 0,
+    volume = (player or self).volume, muted = (player or self).muted,
+    repeat_all = playlist.repeat_all, shuffle = playlist.shuffle,
+    playlist_visible = self.playlist_visible, controls_enabled = self.controls_enabled
+  }
+end
+
+---Restore the queue without rescanning directories or starting native playback.
+---@param state table
+---@return plugins.mediaplayer.view
+function MediaView.from_state(state)
+  local view = MediaView()
+  local playlist = view.playlist
+  playlist.folder:set_path(state.directory or "")
+  playlist.filter:set_text(state.filter or "")
+  playlist.filter_due, playlist.directory_due = nil, nil
+  view.volume = common.clamp(state.volume or view.volume, 0, 100)
+  view.muted = state.muted == true
+  view.mute_button:set_label(view.muted and "Unmute" or "Mute")
+  view.repeat_button:set_toggle(state.repeat_all == true)
+  for _, track in ipairs(state.tracks or {}) do
+    local info = system.get_file_info(track.path)
+    if info and info.type == "file" then playlist:add_file(track.path, track.folder) end
+  end
+  playlist.current = playlist.tracks_by_path[state.current]
+  view.shuffle_button:set_toggle(state.shuffle == true)
+  if playlist.current then
+    view.resume_position = math.max(0, state.position_seconds or 0)
+    view.filename = playlist.current.path
+    view.name = playlist.current.name .. " — Media"
+    view.message = "Press Play to resume: " .. playlist.current.name
+  end
+  playlist.list:set_selected(nil)
+  for i, track in ipairs(playlist.list.row_data) do
+    if track.path == state.selected then playlist.list:set_selected(i) break end
+  end
+  if state.scroll then
+    playlist.list.scroll.x, playlist.list.scroll.to.x = state.scroll.x, state.scroll.x
+    playlist.list.scroll.y, playlist.list.scroll.to.y = state.scroll.y, state.scroll.y
+  end
+  view:set_playlist_visible(state.playlist_visible == true)
+  view:set_controls_enabled(state.controls_enabled ~= false)
+  return view
+end
 
 ---Return presentation bounds without changing the tab's node-owned geometry.
 ---@return number x Screen X coordinate
@@ -761,10 +862,11 @@ end
 ---Replace playback, releasing the old audio device before starting the new file.
 ---Initialize the replacement first so library/configuration failures preserve playback.
 ---@param track plugins.mediaplayer.track
+---@param position? number Saved bookmark when resuming after an editor restart
 ---@return boolean success
-function MediaView:play(track)
+function MediaView:play(track, position)
   if self.closed then return false end
-  local ok, player = pcall(Player.new, self.player)
+  local ok, player = pcall(Player.new, self.player or self, position)
   if not ok then
     self.message = tostring(player)
     core.error("Media Player: %s", self.message)
@@ -777,6 +879,7 @@ function MediaView:play(track)
   self.render_at = nil
   local started, err = pcall(player.command, player, "loadfile", track.path, "replace")
   if not started then self:report_error(err) return false end
+  self.resume_position = nil
   self.name, self.visible_last = track.name .. " — Media", false
   core.redraw = true
   return true
@@ -826,7 +929,10 @@ end
 function MediaView:toggle_play()
   local player = self.player
   if not player then
-    if self.playlist.shuffle then self:advance(1) else self.playlist:play_selected() end
+    if self.playlist.current then
+      self:play(self.playlist.current, self.resume_position)
+    elseif self.playlist.shuffle then self:advance(1)
+    else self.playlist:play_selected() end
     return
   end
   if not player.loaded then return end
@@ -840,6 +946,7 @@ end
 
 ---Pause the video and return to the beginning.
 function MediaView:stop()
+  self.resume_position = nil
   if not self.player or not self.player.loaded then return end
   self.player:command("set", "pause", "yes")
   self:seek_to(0)
@@ -867,14 +974,27 @@ end
 ---Adjust volume within the unamplified 0–100 range.
 ---@param amount number Signed volume adjustment
 function MediaView:change_volume(amount)
-  if self.player then
-    self.player:command("set", "volume", tostring(common.clamp(self.player.volume + amount, 0, 100)))
+  local player = self.player
+  local volume = common.clamp((player and player.volume or self.volume) + amount, 0, 100)
+  if player then
+    player:command("set", "volume", tostring(volume))
+    player.volume = volume
   end
+  self.volume = volume
+  core.redraw = true
 end
 
 ---Toggle audio muting without changing the volume.
 function MediaView:toggle_mute()
-  if self.player then self.player:command("cycle", "mute") end
+  local player = self.player
+  local muted = not (player or self).muted
+  if player then
+    player:command("set", "mute", muted and "yes" or "no")
+    player.muted = muted
+  end
+  self.muted = muted
+  self.mute_button:set_label(muted and "Unmute" or "Mute")
+  core.redraw = true
 end
 
 ---Center each row of controls, wrapping when needed and reserving space for video.
@@ -986,6 +1106,7 @@ function MediaView:pump()
   if player.ended and not ended and self:advance(1, true) then
     player, changed = self.player, true
   end
+  self.volume, self.muted = player.volume, player.muted
   local visual_changed = self:update_visualizer(player, visible)
   changed = changed or visual_changed
   local video_visible = visible and (player.has_video or not player.loaded)
@@ -1207,8 +1328,12 @@ end
 
 ---@class plugins.mediaplayer
 ---@field MediaView plugins.mediaplayer.view Video player view constructor
----@field is_supported fun(path:string,include_audio?:boolean):boolean Check video extensions, optionally audio, without loading libmpv
-local mediaplayer = {MediaView = MediaView, is_supported = Playlist.is_supported}
+---@field is_supported fun(path:string,include_audio?:boolean,include_images?:boolean):boolean Check extensions without loading libmpv
+---@field from_state fun(state:table):plugins.mediaplayer.view Restore a saved player without playback
+local mediaplayer = {
+  MediaView = MediaView, is_supported = Playlist.is_supported,
+  from_state = MediaView.from_state
+}
 
 ---Leave exclusive video playback, allowing other fullscreen plugins to take over.
 function mediaplayer.exit_fullscreen()
@@ -1216,14 +1341,19 @@ function mediaplayer.exit_fullscreen()
 end
 
 ---Open a new video tab, optionally starting a file or scanning a directory.
----@param filename? string Media or directory path; omit to create an empty player
+---@param filename? string Media or directory path; omit to scan the default directory
 ---@return plugins.mediaplayer.view
 function mediaplayer.open(filename)
   local view = MediaView()
   core.root_view:get_active_node_default():add_view(view)
-  local info = filename and system.get_file_info(common.home_expand(filename))
-  if info and info.type == "dir" then view:scan(filename)
-  elseif filename then view:open_file(filename) end
+  local use_default = filename == nil
+  filename = filename or config.plugins.mediaplayer.directory
+  if filename and filename ~= "" then
+    filename = core.root_project():absolute_path(common.normalize_path(common.home_expand(filename)))
+    local info = system.get_file_info(filename)
+    if use_default or info and info.type == "dir" then view:scan(filename)
+    else view:open_file(filename) end
+  end
   return view
 end
 
@@ -1243,6 +1373,10 @@ end, {
   ["media-player:next"] = function(view) view:advance(1) end,
   ["media-player:previous"] = function(view) view:advance(-1) end,
   ["media-player:toggle-playlist"] = function(view) view:set_playlist_visible(not view.playlist_visible) end,
+  ["media-player:toggle-controls"] = function(view)
+    view.controls_until = not view.controls_visible and system.get_time() + 3 or nil
+    view:set_controls_visible(not view.controls_visible)
+  end,
   ["media-player:toggle-repeat"] = function(view) view.repeat_button:toggle() end,
   ["media-player:toggle-shuffle"] = function(view) view.shuffle_button:toggle() end,
   ["media-player:toggle-fullscreen"] = function(view) view:toggle_fullscreen() end
@@ -1265,9 +1399,28 @@ keymap.add {
   ["m"] = "media-player:toggle-mute",
   ["f11"] = "media-player:toggle-fullscreen"
 }
-core.menu_view:register({"view"}, {
+core.menu_view:register({"tools"}, {
   {id = "media-player", text = "Open Media Player", command = "media-player:open"}
 }, "mediaplayer")
+
+if config.plugins.treeview ~= false then
+  local treeview = require "plugins.treeview"
+  ---Keep the clicked file or directory as the target through menu dismissal.
+  ---@return boolean? available
+  ---@return plugins.treeview.item? item
+  local function media_item()
+    local item = treeview:get_context_item()
+    return item and (item.type == "dir"
+      or item.type == "file" and Playlist.is_supported(item.abs_filename, true, true))
+      and (core.active_view == treeview or treeview.contextmenu.show_context_menu), item
+  end
+  treeview.contextmenu:register(media_item, {
+    {text = "Open with Media Player", command = "treeview:open-with-media-player"}
+  })
+  command.add(media_item, {
+    ["treeview:open-with-media-player"] = function(item) mediaplayer.open(item.abs_filename) end
+  })
+end
 
 local default_view
 local open_file = core.open_file
@@ -1282,6 +1435,16 @@ core.open_file = function(filename, ...)
   if not view:is(MediaView) or view.closed or not view.controls_enabled then view = default_view end
   local node = view and not view.closed and view.controls_enabled
     and core.root_view.root_node:get_node_for_view(view)
+  if not node then
+    -- Workspace restores tabs before the first ordinary file-open operation.
+    for _, restored in ipairs(core.root_view.root_node:get_children()) do
+      if restored:is(MediaView) and not restored.closed and restored.controls_enabled then
+        view = restored
+        node = core.root_view.root_node:get_node_for_view(view)
+        break
+      end
+    end
+  end
   if not node then
     view = MediaView()
     node = core.root_view:get_active_node_default()

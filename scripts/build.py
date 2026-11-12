@@ -40,8 +40,8 @@ def check_license_notices(sources, pins):
                 raise SystemExit(f"Update the bundled license notice: {notice}")
 
 
-def install_audio_samples(source_dir):
-    """Integrate our optional, nonblocking PCM snapshot API into pinned mpv."""
+def install_mpv_overlays(source_dir):
+    """Apply checked, idempotent integration changes to pinned mpv."""
     for suffix in ("c", "h"):
         shutil.copyfile(ROOT / "native" / ("audio_samples." + suffix),
                         source_dir / "audio" / ("pragtical_samples." + suffix))
@@ -76,6 +76,62 @@ def install_audio_samples(source_dir):
             "    if not features['cocoa']\n"
             "        sources += files('osdep/utils-mac.c')\n"
             "    endif\n")
+
+    # SDL2's legacy AO reserves one device for the entire process. Give each
+    # libmpv client its own device, with a balanced subsystem reference. SDL's
+    # global init reference count and device list also need serialization.
+    sdl = "audio/out/ao_sdl.c"
+    replace(sdl, '#include "osdep/timer.h"',
+            '#include "osdep/timer.h"\n#include "osdep/threads.h"')
+    replace(sdl, '#include <SDL.h>\n',
+            '#include <SDL.h>\n\n'
+            'static mp_static_mutex audio_lock = MP_STATIC_MUTEX_INITIALIZER;\n')
+    replace(sdl, "    bool paused;\n",
+            "    bool paused;\n    bool initialized;\n    SDL_AudioDeviceID device;\n")
+    replace(sdl, """    if (SDL_WasInit(SDL_INIT_AUDIO)) {
+        // make sure the callback exits
+        SDL_LockAudio();
+
+        // close audio device
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    }
+""", """    mp_mutex_lock(&audio_lock);
+    if (priv->device) {
+        // Closing waits for this device's callback before releasing its owner.
+        SDL_CloseAudioDevice(priv->device);
+        priv->device = 0;
+    }
+    if (priv->initialized) {
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        priv->initialized = false;
+    }
+    mp_mutex_unlock(&audio_lock);
+""")
+    replace(sdl, """    if (SDL_WasInit(SDL_INIT_AUDIO)) {
+        MP_ERR(ao, "already initialized\\n");
+        return -1;
+    }
+
+    struct priv *priv = ao->priv;
+
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+""", """    struct priv *priv = ao->priv;
+
+    mp_mutex_lock(&audio_lock);
+    int result = SDL_InitSubSystem(SDL_INIT_AUDIO);
+    priv->initialized = result == 0;
+    mp_mutex_unlock(&audio_lock);
+    if (result) {
+""")
+    replace(sdl, """    if (SDL_OpenAudio(&desired, &obtained)) {
+""", """    mp_mutex_lock(&audio_lock);
+    priv->device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained,
+                                       SDL_AUDIO_ALLOW_ANY_CHANGE);
+    mp_mutex_unlock(&audio_lock);
+    if (!priv->device) {
+""")
+    replace(sdl, "SDL_PauseAudio(SDL_TRUE);", "SDL_PauseAudioDevice(priv->device, SDL_TRUE);")
+    replace(sdl, "SDL_PauseAudio(SDL_FALSE);", "SDL_PauseAudioDevice(priv->device, SDL_FALSE);")
 
 
 def host_arch():
@@ -165,7 +221,7 @@ def main():
     pins = json.loads((ROOT / "sources.json").read_text())
     sources = {name: source(name, spec, build / "downloads", build / "src") for name, spec in pins.items()}
     check_license_notices(sources, pins)
-    install_audio_samples(sources["mpv"])
+    install_mpv_overlays(sources["mpv"])
     audio_recipe = hashlib.sha256(b"".join(
         path.read_bytes() for path in sorted((ROOT / "native").iterdir()) if path.is_file()
     )).hexdigest()

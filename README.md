@@ -34,21 +34,38 @@ the Lua plugin with a compatible system library.
 Supported video files open in Media Player from the treeview, file picker,
 drag-and-drop and other normal editor file-open operations. Successive files
 share a player tab and append to its playlist. Text, image and audio files
-keep their existing handlers. You can also choose **View → Open Media Player**
+keep their existing handlers. You can also choose **Tools → Open Media Player**
 or run `media-player:open` to create a separate player.
 Opening the player creates an empty tab; use its **Open** button to choose media.
+Set **Default Directory** in Settings → Plugins → Media Player to scan a media
+folder automatically in new tabs, without starting playback.
 Ambiguous `.ts` and `.mts` extensions keep their TypeScript editing behavior;
 open transport-stream videos explicitly through the player's **Open** button.
+
+Right-click a supported audio, video or image file in the treeview and choose
+**Open with Media Player** to open it explicitly in a new player tab. Supported
+images include JPEG, GIF, BMP, WebP, TIFF and AVIF. PNG and SVG are excluded
+because the bundled runtime does not include their decoders.
+The same action on a directory opens a new player tab and recursively scans
+that folder for audio and video, without starting playback.
 
 The playlist button shows a panel on the right. Choose or type a directory to
 scan recursively for audio and video, or drop a directory on the player.
 Scanning skips directory symlinks and does not start playback. Select a row
 to play it, or use the filter to find a title or folder.
+Enable **Scan Images** in Settings → Plugins → Media Player to include supported
+images in new directory scans. It is off by default; existing playlists are
+kept when you change this setting.
 
 Previous/next, repeat and shuffle controls navigate the queue. Playback advances
 at the end of each track and stops at the last entry unless repeat is enabled.
 Volume and mute are retained between tracks. The playlist stays visible during
 fullscreen playback until toggled off; transport controls fade independently.
+
+With the workspace plugin enabled, player tabs restore their playlist, filter,
+selection, scroll position, repeat/shuffle settings, volume and mute after an
+editor restart. Playback stays idle until you press Play, then resumes at the
+saved position. Missing files are skipped; folders are not rescanned on restore.
 
 For audio tracks, **Audio Display** in the plugin settings selects **Artwork**,
 **Visualization**, or **Both**. Both places embedded cover art over the effect.
@@ -74,6 +91,9 @@ Hover over the seek bar to see the timestamp at the pointer position.
 | Escape | Leave fullscreen |
 
 Fullscreen controls appear on mouse movement and hide after three seconds.
+Run `media-player:toggle-controls` to show or hide transport controls while
+keeping playback shortcuts available. Fullscreen controls retain their usual
+three-second timeout and reveal on mouse movement.
 These shortcuts apply while the player is active and no text field has focus.
 Settings → Plugins → Media Player configures the library override, initial
 volume, frame rate and maximum rendered height. The frame-rate limit follows the
@@ -85,6 +105,13 @@ decoders for each video and falls back to software when unavailable. The
 playback status displays the active decoder, such as `vaapi-copy`, or
 `Software`. The **Hardware Decoding** toggle also applies to playing videos.
 Scaling and color conversion use CPU resources even with hardware decoding.
+
+**HDR to SDR** is off by default. When enabled, it tone-maps PQ/HLG HDR video to sRGB
+using the native scaling filter. It applies during playback and while paused;
+SDR video is unchanged. Tone mapping uses extra CPU. The player draws 8-bit SDR
+pixels, so disabling this option does not enable HDR display output. System
+libmpv installations need FFmpeg's scale color-mapping options; the bundled
+runtime includes them.
 
 **Scaling** defaults to Automatic: Lanczos for video up to 30 FPS, and faster
 bilinear scaling for higher frame rates. Choose Lanczos for sharper scaling,
@@ -124,10 +151,13 @@ view:toggle_fullscreen()
 ```
 
 `MediaPlayer.open(directory)` opens a new tab and scans that directory.
-`MediaPlayer.open()` creates an empty player; its **Open** button shows the
-file picker. `MediaPlayer.is_supported(path)`
-checks video extensions without loading libmpv. `MediaPlayer.exit_fullscreen()`
-restores the editor if one of its players owns the fullscreen presentation.
+`MediaPlayer.open()` scans the configured default directory, or creates an empty
+player if none is set. `MediaPlayer.open("")` always creates an empty player.
+Its **Open** button shows the file picker. `MediaPlayer.is_supported(path)`
+checks video extensions without loading libmpv; pass `true` as the second
+argument to include audio, and as the third to include images.
+`MediaPlayer.exit_fullscreen()` restores the editor if one of its players owns
+the fullscreen presentation.
 
 For a view managed by another plugin, construct `MediaPlayer.MediaView()` and
 add it to a node. `view:set_controls_enabled(false)` hides transport and playlist
@@ -151,6 +181,9 @@ decoding is used when hardware is unavailable. NVIDIA requires driver
 550.54.14 or newer on Linux, or 551.76 or newer on Windows. No CUDA toolkit is
 needed. Linux audio requires PulseAudio or ALSA; macOS and Windows use their
 native audio services.
+
+The bundled Linux runtime gives each player tab its own audio device. Pausing,
+replacing media or closing one tab leaves other players' audio running.
 
 ## Building
 

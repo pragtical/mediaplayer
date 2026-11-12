@@ -1,5 +1,6 @@
 local core = require "core"
 local common = require "core.common"
+local config = require "core.config"
 local style = require "core.style"
 local system = require "system"
 local renderer = require "renderer"
@@ -10,6 +11,7 @@ local ListBox = require "widget.listbox"
 
 local extensions = {}
 local audio_extensions = {}
+local image_extensions = {}
 -- Keep .ts and .mts in the text editor: they also name TypeScript sources.
 -- The player's explicit file picker can still open transport streams.
 for ext in ("mp4 mkv webm mov avi m4v mpeg mpg mpe m2v m2ts vob ogv "
@@ -19,6 +21,13 @@ end
 for ext in ("aac ac3 aif aifc aiff alac amr ape au caf dff dsf dts eac3 flac "
   .. "m4a m4b mka mp1 mp2 mp3 oga ogg opus ra shn tak tta voc w64 wav wave wma wv"):gmatch("%S+") do
   audio_extensions[ext] = true
+end
+-- Image support is opt-in for scans and explicit opens, leaving the editor's
+-- normal ImageView routing unchanged. The bundled FFmpeg
+-- lacks PNG's zlib dependency and SVG's external renderer.
+for ext in ("avif bmp gif jpeg jpg jfif pjpeg pjp pcx webp tif tiff tga "
+  .. "pbm pgm ppm pnm pam pfm qoi"):gmatch("%S+") do
+  image_extensions[ext] = true
 end
 
 ---@class plugins.mediaplayer.track
@@ -43,14 +52,17 @@ end
 local Playlist = Widget:extend()
 
 ---Check extensions without opening media or initializing the native runtime.
----Audio is opt-in so normal file opens keep the editor's audio handler.
+---Audio and images are opt-in so normal opens keep the editor's own handlers.
 ---@param path string
 ---@param include_audio? boolean Include audio formats for scans and explicit player input
+---@param include_images? boolean Include image formats supported by the bundled runtime
 ---@return boolean supported
-function Playlist.is_supported(path, include_audio)
+function Playlist.is_supported(path, include_audio, include_images)
   local ext = path:match("%.([^%./\\]+)$")
   ext = ext and ext:lower()
-  return ext ~= nil and (extensions[ext] == true or include_audio == true and audio_extensions[ext] == true)
+  return ext ~= nil and (extensions[ext] == true
+    or include_audio == true and audio_extensions[ext] == true
+    or include_images == true and image_extensions[ext] == true)
 end
 
 ---Draw a clipped title, using the current track's accent without widening the row.
@@ -108,9 +120,9 @@ function Playlist:new(parent)
   self.folder:set_mode(FilePicker.mode.DIRECTORY_EXISTS)
   self.folder:set_editable(true)
   self.folder.picker_title = "Choose media directory"
-  self.folder.button:set_tooltip("Scan a directory for audio and video")
+  self.folder.button:set_tooltip("Scan a directory for audio, video and images")
   self.folder.on_change = function() self.directory_due = system.get_time() + 0.4 end
-  self.filter = TextBox(self, "", "Filter tracks...")
+  self.filter = TextBox(self, "", "Filter tracks...", {clearable = true})
   self.filter.on_change = function() self.filter_due = system.get_time() + 0.15 end
   self.list = ListBox(self)
   self.list:add_column("Track", 240, false)
@@ -185,6 +197,7 @@ function Playlist:scan(path)
   self:on_reset()
   self.generation = self.generation + 1
   local generation = self.generation
+  local include_images = config.plugins.mediaplayer.scan_images == true
   self.tracks, self.tracks_by_path, self.current = {}, {}, nil
   self:reset_shuffle()
   self.list:clear()
@@ -205,7 +218,7 @@ function Playlist:scan(path)
         local file = system.get_file_info(filename)
         if file and file.type == "dir" and not file.symlink then
           pending[#pending + 1] = filename
-        elseif file and file.type == "file" and Playlist.is_supported(filename, true) then
+        elseif file and file.type == "file" and Playlist.is_supported(filename, true, include_images) then
           self:add_file(filename, common.relative_path(absolute, dir))
         elseif not file then self.scan_skipped = self.scan_skipped + 1 end
         if system.get_time() >= deadline then

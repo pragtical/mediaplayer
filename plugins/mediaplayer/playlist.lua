@@ -23,9 +23,9 @@ for ext in ("aac ac3 aif aifc aiff alac amr ape au caf dff dsf dts eac3 flac "
   audio_extensions[ext] = true
 end
 -- Image support is opt-in for scans and explicit opens, leaving the editor's
--- normal ImageView routing unchanged. The bundled FFmpeg
--- lacks PNG's zlib dependency and SVG's external renderer.
-for ext in ("avif bmp gif jpeg jpg jfif pjpeg pjp pcx webp tif tiff tga "
+-- normal ImageView routing unchanged. The bundled FFmpeg lacks SVG's
+-- external renderer.
+for ext in ("apng avif bmp gif jpeg jpg jfif pjpeg pjp jxl png pcx webp tif tiff tga "
   .. "pbm pgm ppm pnm pam pfm qoi"):gmatch("%S+") do
   image_extensions[ext] = true
 end

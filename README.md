@@ -44,8 +44,9 @@ open transport-stream videos explicitly through the player's **Open** button.
 
 Right-click a supported audio, video or image file in the treeview and choose
 **Open with Media Player** to open it explicitly in a new player tab. Supported
-images include JPEG, GIF, BMP, WebP, TIFF and AVIF. PNG and SVG are excluded
-because the bundled runtime does not include their decoders.
+images include PNG (including animated PNG), JPEG, JPEG XL (`.jxl`), GIF, BMP,
+WebP, TIFF and AVIF. SVG is excluded because the bundled runtime does not
+include its renderer.
 The same action on a directory opens a new player tab and recursively scans
 that folder for audio and video, without starting playback.
 

@@ -2,6 +2,7 @@
 """Check a staged libmpv without depending on an editor or media executables."""
 
 import argparse
+import base64
 import ctypes as c
 import math
 import os
@@ -39,10 +40,11 @@ def check_dependencies(path):
         for line in output.splitlines()[2:]:
             name = line.strip().split(" ", 1)[0]
             assert name.startswith(("/System/Library/", "/usr/lib/")), output
+            assert not Path(name).name.startswith("libz."), output
     else:
         output = subprocess.check_output(["objdump", "-p", str(path)], text=True)
         for name in re.findall(r"DLL Name:\s*(\S+)", output, re.I):
-            assert not re.search(r"(libgcc|libstdc|libwinpthread|libav|libass|freetype|harfbuzz|fribidi|placebo|sdl)", name, re.I), output
+            assert not re.search(r"(libgcc|libstdc|libwinpthread|libav|libass|freetype|harfbuzz|fribidi|placebo|sdl|jxl|brotli|hwy|zlib|libzs?\.)", name, re.I), output
     print("Verified only platform runtime libraries are dynamically linked")
 
 
@@ -138,6 +140,70 @@ def main():
             alpha = c.string_at(pixels, 96 * 64 * 4)[3::4]
             assert alpha == bytes([255]) * (96 * 64), "RGBA output must supply opaque alpha"
             print(f"Verified automatic software fallback: {frames} renders, {len(colors)} distinct frames")
+            # Original image fixtures: red/green halves and animations alternating
+            # solid red/green. CI needs no image encoders or downloads.
+            red, green = bytes((255, 0, 0, 255)), bytes((0, 255, 0, 255))
+            fixtures = (
+                ("colors.jxl", (
+                    "/woPQUBxIQgCAQDQAksYm5xxhAM4gAM4IErAOQUBACBEgAgQASJA5Hnknr6gc++t"
+                    "qqp6SZIkBNTd3d3d3TMz86r+7u7uLs9/f8//+/Bt9DHmnGvvqqqqKgK6N0mSJEle"
+                    "5j73/////x/+37/nv4fGnHOutc+9SZIkBFRVVVVVVf///8+9r7u7uxv+37/nv4fGnH"
+                    "Outc+9SZIkBFRVVVVVVf///8+9r7u7u/sCMQB4+j/7Pfuf/jz7AwDgYgAA/D+4Bw=="
+                ), {red + green}),
+                ("animated.jxl", (
+                    "/woPBR0AICYIAAEAaAErWZGCgsI9O4Fzlcy/BEWag9fI1ze5sXfFQ/zHu/s0a1yv"
+                    "Hu3q73swNvdXoHzu2T/1eraX+nr/JfJQhIlNsn07CymwATGYtTHGjTHuAQAbIW"
+                    "rQyvX7Df/RqgMIAAUAVAErWZGCgsI9O4Fzlcy/BEWag9fI1ze5sXfFQ/zHu/s0a1"
+                    "yvHu3q73swNvdXoHzu2T/1eraX+nr/JfJQhIlNsn07CymwATGYuTHGPQDgY1sC+"
+                    "15ePcAH"
+                ), {red + red, green + green}),
+                ("colors.png", (
+                    "iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAYAAADlNHIOAAAA0UlEQVR4nO2RAQ3A"
+                    "QAyE6t/0TwaBXQgG4N7dMxuAj7gBYgPwETdAbAA+4gaIDcBH3ACxAfiIGyA2AB9x"
+                    "A8QG4CNugNgAfMQNEBuAj7gBYgPwETdAbAA+4gaIDcBH3ACxAfiIGyA2AB9xA8QG"
+                    "4CNugNgAfMQNEBuAj7gBYgPwETdAbAA+4gaIDcBH3ACxAfiIGyA2AB9xA8QG4CNu"
+                    "gNgAfMQNEBuAj7gBYgPwETdAbAA+4gaIDcBH3ACxAfiIGyA2AB9xA8QG4CNugNgA"
+                    "fMQ/D/gARhvSwpvhL8QAAAAASUVORK5CYII="
+                ), {red + green}),
+                ("animated.png", (
+                    "iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAIAAABqVuVZAAAACXBIWXMAAAAAAAAA"
+                    "AQCEeRdzAAAACGFjVEwAAAACAAAAAYSKo+YAAAAaZmNUTAAAAAAAAABgAAAAQAAA"
+                    "AAAAAAAAAAEABAAAn4+nKwAAAJZJREFUeJzt0DENACAAwDBI8G8ZHLATjlbBsrkH"
+                    "N+t1wO8MCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAo"
+                    "GBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDAoGBQM"
+                    "CgYFg4JBwaBgUDAoGBQMCgYFg4JBwaBgUDgdFQH9wJU7eAAAABpmY1RMAAAAAQAA"
+                    "AGAAAABAAAAAAAAAAAAAAQAEAAAE/E3/AAAAm2ZkQVQAAAACeJzt0DENACAAwDBI"
+                    "8G8ZHLATjlbBsjn24GK9DvidQcGgYFAwKBgUDAoGBYOCQcGgYFAwKBgUDAoGBYOC"
+                    "QcGgYFAwKBgUDAoGBYOCQcGgYFAwKBgUDAoGBYOCQcGgYFAwKBgUDAoGBYOCQcGg"
+                    "YFAwKBgUDAoGBYOCQcGgYFAwKBgUDAoGBYOCQcGgYFAwKBgUDAoHHBYB/YCvI7YA"
+                    "AAAASUVORK5CYII="
+                ), {red + red, green + green}),
+            )
+            for filename, encoded, expected in fixtures:
+                image = Path(directory) / filename
+                image.write_bytes(base64.b64decode(encoded))
+                check(lib.mpv_command_async(handle, 0,
+                    (c.c_char_p * 4)(b"loadfile", str(image).encode(), b"replace", None)))
+                loaded, deadline = False, time.monotonic() + 6
+                while time.monotonic() < deadline and expected:
+                    for _ in range(100):
+                        event = lib.mpv_wait_event(handle, 0).contents
+                        if event.event_id == 0:
+                            break
+                        check(event.error)
+                        if event.event_id == 8:
+                            loaded = True
+                    if lib.mpv_render_context_update(context):
+                        check(lib.mpv_render_context_render(context, params))
+                        data = c.string_at(pixels, 96 * 64 * 4)
+                        left, right = (32 * 96 + 24) * 4, (32 * 96 + 72) * 4
+                        if loaded:
+                            actual = data[left:left + 4] + data[right:right + 4]
+                            expected = {color for color in expected if not all(
+                                abs(a - b) <= 2 for a, b in zip(actual, color))}
+                    time.sleep(0.01)
+                assert not expected, f"{filename} did not render the expected RGBA colors"
+            print("Verified PNG/APNG and JPEG XL decoding and RGBA rendering")
             sound = Path(directory) / "tone.wav"
             with wave.open(str(sound), "wb") as output:
                 output.setnchannels(1)

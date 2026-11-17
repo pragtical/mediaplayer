@@ -976,6 +976,7 @@ function MediaView:choose_file()
       title = "Open Media", filters = {
         {name = "Video files", pattern = "mp4;mkv;webm;mov;avi;m4v;mpeg;mpg;ogv;ts"},
         {name = "Audio files", pattern = "aac;aif;aiff;ape;flac;m4a;m4b;mka;mp2;mp3;oga;ogg;opus;wav;wma;wv"},
+        {name = "Image files", pattern = "apng;avif;bmp;gif;jpeg;jpg;jfif;pjpeg;pjp;jxl;png;pcx;webp;tif;tiff;tga;pbm;pgm;ppm;pnm;pam;pfm;qoi"},
         {name = "All files", pattern = "*"}
       }
     })
@@ -1373,13 +1374,13 @@ function MediaView:on_click(button, x, y)
   end
 end
 
----Open a dropped video or recursively scan a dropped directory.
+---Open supported dropped media or recursively scan a dropped directory.
 ---@param filename string Dropped path
 ---@return boolean handled
 function MediaView:on_file_dropped(filename)
   local info = system.get_file_info(filename)
   if info and info.type == "dir" then return self:scan(filename) end
-  if Playlist.is_supported(filename, true) then return self:open_file(filename) end
+  if Playlist.is_supported(filename, true, true) then return self:open_file(filename) end
   return false
 end
 

@@ -138,5 +138,52 @@
       "include/ffnvcodec/dynlink_nvcuvid.h",
       "include/ffnvcodec/nvEncodeAPI.h"
     ]
+  },
+  "libjxl": {
+    "version": "0.13.0",
+    "url": "https://codeload.github.com/libjxl/libjxl/tar.gz/refs/tags/v0.13.0",
+    "filename": "libjxl-0.13.0.tar.gz",
+    "sha256": "24d18c9af2d1f5a17730b3f8d3f70a5c16e5ac303f5d9d5fe9dc00cf7ca82af2",
+    "licenses": [
+      "LICENSE",
+      "PATENTS"
+    ]
+  },
+  "brotli": {
+    "version": "db24a98aed38a16de78cc05ca15cdd8dc2a0d92d",
+    "url": "https://codeload.github.com/google/brotli/tar.gz/db24a98aed38a16de78cc05ca15cdd8dc2a0d92d",
+    "filename": "brotli-db24a98aed38a16de78cc05ca15cdd8dc2a0d92d.tar.gz",
+    "sha256": "113b9685dfc14dd2f3360d077283266eec2fbdfb0fe3e5600f11be151da0d68e",
+    "licenses": [
+      "LICENSE"
+    ]
+  },
+  "highway": {
+    "version": "457c891775a7397bdb0376bb1031e6e027af1c48",
+    "url": "https://codeload.github.com/google/highway/tar.gz/457c891775a7397bdb0376bb1031e6e027af1c48",
+    "filename": "highway-457c891775a7397bdb0376bb1031e6e027af1c48.tar.gz",
+    "sha256": "5124b0501c98d9930dbb065bfa1a5bbbd59ce0f12facb7e1e33aaef01a5f1f1a",
+    "licenses": [
+      "LICENSE",
+      "LICENSE-BSD3"
+    ]
+  },
+  "skcms": {
+    "version": "96d9171c94b937a1b5f0293de7309ac16311b722",
+    "url": "https://codeload.github.com/google/skcms/tar.gz/96d9171c94b937a1b5f0293de7309ac16311b722",
+    "filename": "skcms-96d9171c94b937a1b5f0293de7309ac16311b722.tar.gz",
+    "sha256": "9bb4b5bba0b7c04f6c2bce9ff713d61e23c9a20c4945161ae16290498ad74627",
+    "licenses": [
+      "LICENSE"
+    ]
+  },
+  "zlib": {
+    "version": "1.4",
+    "url": "https://zlib.net/zlib-1.4.tar.xz",
+    "filename": "zlib-1.4.tar.xz",
+    "sha256": "4f11c512053d7bab8d9e9b89bde3575add3e4c50a383b42ef6cb837035fc5a7c",
+    "licenses": [
+      "LICENSE"
+    ]
   }
 }

@@ -134,6 +134,20 @@ def install_mpv_overlays(source_dir):
     replace(sdl, "SDL_PauseAudio(SDL_FALSE);", "SDL_PauseAudioDevice(priv->device, SDL_FALSE);")
 
 
+def install_ffmpeg_overlays(source_dir):
+    """Keep fully buffered, small JPEG XL animations from being discarded."""
+    path = source_dir / "libavformat/jpegxl_anim_dec.c"
+    content = path.read_text()
+    before = "    ret = avio_read(pb, pkt->data + offset, size - offset);"
+    after = ("    /* read_header may have buffered the entire animation already. */\n"
+             "    ret = offset == size ? 0 : avio_read(pb, pkt->data + offset, size - offset);")
+    if after in content:
+        return
+    if content.count(before) != 1:
+        raise RuntimeError("FFmpeg JPEG XL integration no longer matches")
+    path.write_text(content.replace(before, after))
+
+
 def host_arch():
     """Return the native PPM architecture tuple; cross builds are not inferred."""
     cpu = platform.machine().lower()
@@ -222,6 +236,7 @@ def main():
     sources = {name: source(name, spec, build / "downloads", build / "src") for name, spec in pins.items()}
     check_license_notices(sources, pins)
     install_mpv_overlays(sources["mpv"])
+    install_ffmpeg_overlays(sources["ffmpeg"])
     audio_recipe = hashlib.sha256(b"".join(
         path.read_bytes() for path in sorted((ROOT / "native").iterdir()) if path.is_file()
     )).hexdigest()
@@ -357,6 +372,50 @@ def main():
     # FFmpeg's built-in AV1 decoder requires hardware; dav1d supplies software fallback.
     meson("dav1d", ["-Denable_tools=false", "-Denable_tests=false"])
 
+    # JPEG XL needs libjxl; populate its pinned submodules instead of finding
+    # host libraries. Only the final libmpv is shared or shipped.
+    for name in ("brotli", "highway", "skcms"):
+        shutil.copytree(sources[name], sources["libjxl"] / "third_party" / name,
+                        dirs_exist_ok=True)
+    directory = build / "work/libjxl"
+    if not current(directory, fingerprint):
+        disabled = ("TOOLS", "DEVTOOLS", "BENCHMARK", "EXAMPLES", "JNI", "SJPEG",
+                    "OPENEXR", "VIEWERS", "TCMALLOC", "PLUGINS", "DOXYGEN", "MANPAGES",
+                    "FUZZERS")
+        run(["cmake", "-S", sources["libjxl"], "-B", directory, "-G", "Ninja",
+             "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_INSTALL_PREFIX=" + prefix.as_posix(),
+             "-DCMAKE_INSTALL_LIBDIR=lib", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+             "-DBUILD_SHARED_LIBS=OFF", "-DBUILD_TESTING=OFF", "-DJPEGXL_ENABLE_SKCMS=ON",
+             "-DJPEGXL_BUNDLE_LIBPNG=OFF",
+             *("-DJPEGXL_ENABLE_" + name + "=OFF" for name in disabled)], ROOT, env)
+        run(["cmake", "--build", directory, "--parallel", args.jobs], ROOT, env)
+        run(["cmake", "--install", directory], ROOT, env)
+        (directory / ".installed").write_text(fingerprint)
+    # FFmpeg probes the thread runner separately with the C compiler. Its
+    # static .pc file omits the C++ runtime and thread link flags.
+    metadata = prefix / "lib/pkgconfig/libjxl_threads.pc"
+    content = metadata.read_text()
+    library = "c++" if args.arch.endswith("-darwin") else "stdc++"
+    if "-l" + library not in content:
+        metadata.write_text(content.replace("Libs.private:",
+                            "Libs.private: -l" + library + " -pthread"))
+
+    # FFmpeg's built-in PNG/APNG decoders need only a private static zlib.
+    directory = build / "work/zlib"
+    if not current(directory, fingerprint):
+        run(["cmake", "-S", sources["zlib"], "-B", directory, "-G", "Ninja",
+             "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_INSTALL_PREFIX=" + prefix.as_posix(),
+             "-DCMAKE_INSTALL_LIBDIR=lib", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+             "-DZLIB_BUILD_SHARED=OFF", "-DZLIB_BUILD_STATIC=ON",
+             "-DZLIB_BUILD_TESTING=OFF"], ROOT, env)
+        run(["cmake", "--build", directory, "--parallel", args.jobs], ROOT, env)
+        run(["cmake", "--install", directory], ROOT, env)
+        (directory / ".installed").write_text(fingerprint)
+    if args.arch.endswith("-windows"):
+        # Upstream installs libzs.a on MinGW but its .pc still names libz.
+        metadata = prefix / "lib/pkgconfig/zlib.pc"
+        metadata.write_text(metadata.read_text().replace(" -lz\n", " -lzs\n"))
+
     ffmpeg = build / "work/ffmpeg"
     if not current(ffmpeg, fingerprint):
         ffmpeg.mkdir(exist_ok=True)
@@ -366,7 +425,7 @@ def main():
                    "--disable-encoders", "--disable-muxers", "--disable-devices", "--disable-hwaccels",
                    "--disable-filters", "--enable-filter=abuffer,abuffersink,buffer,buffersink,aformat,format,aresample,scale,volume",
                    "--disable-gpl", "--disable-nonfree", "--disable-version3", "--enable-runtime-cpudetect",
-                   "--enable-libdav1d"]
+                   "--enable-libdav1d", "--enable-libjxl", "--enable-zlib"]
         if args.arch.startswith("x86_64-"):
             options += ["--arch=x86_64", "--cpu=x86-64"]
         else:
@@ -399,6 +458,11 @@ def main():
             raise SystemExit("Required hardware decoding component is missing: " + feature)
     if "#define CONFIG_LIBDAV1D_DECODER 1\n" not in configuration:
         raise SystemExit("Required AV1 software decoder is missing: libdav1d")
+    for codec in ("LIBJXL", "LIBJXL_ANIM", "PNG", "APNG"):
+        if "#define CONFIG_" + codec + "_DECODER 1\n" not in configuration:
+            raise SystemExit("Required image decoder is missing: " + codec)
+        if "#define CONFIG_" + codec + "_ENCODER 0\n" not in configuration:
+            raise SystemExit("Image encoding must remain disabled: " + codec)
 
     audio = {"linux": "sdl2-audio", "darwin": "coreaudio", "windows": "wasapi"}[args.arch.split("-", 1)[1]]
     options = ["-Dcplayer=false", "-Dlibmpv=true", "-Dgpl=false", "-Dlua=disabled", "-Dgl=disabled",
@@ -421,7 +485,7 @@ def main():
 
     (output / ("build-info." + args.arch + ".json")).write_text(json.dumps({
         "arch": args.arch, "sources": pins, "mpv_options": options, "hardware_features": hardware,
-        "ffmpeg_features": "local-file playback, software decoding including AV1 via dav1d, and copy-back hardware decoding; no encoding or network",
+        "ffmpeg_features": "local-file playback, software decoding including AV1 via dav1d, JPEG XL via libjxl and PNG/APNG via zlib, and copy-back hardware decoding; no encoding or network",
         "audio_samples": {"frames": 2048, "channels": 2, "nonblocking": True}
     }, indent=2) + "\n")
     print(f"Staged {staged} ({staged.stat().st_size / 1024 / 1024:.1f} MiB)")

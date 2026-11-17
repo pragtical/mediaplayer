@@ -135,8 +135,40 @@ config.plugins.mediaplayer = common.merge({
 
 local ffi, mpv
 
----@type {view:plugins.mediaplayer.view, root:core.rootview, window:renwindow, draw:function?, previous_draw:function, override:function, restore_window:boolean}?
+---@class plugins.mediaplayer.fullscreen_state
+---@field view plugins.mediaplayer.view
+---@field root core.rootview
+---@field window renwindow
+---@field draw function?
+---@field previous_draw function
+---@field override function
+---@field restore_window boolean
+---@field relative_mouse boolean Whether this player acquired relative mode
+---@field relative_requested boolean? Last requested state, including driver rejection
+---@field relative_button string? Button whose relative-mode press was consumed
+---@field mouse_inside boolean? False after the pointer leaves the window
+
+---@type plugins.mediaplayer.fullscreen_state?
 local fullscreen
+
+---Release only the relative mode acquired by this fullscreen player.
+---@param view plugins.mediaplayer.view
+local function release_relative_mouse(view)
+  local state = fullscreen
+  if state and state.view == view and state.relative_mouse then
+    state.window:set_relative_mouse_mode(false)
+    state.relative_mouse = false
+  end
+end
+
+---Check native mode before using a mouse event's absolute coordinates.
+---@param view plugins.mediaplayer.view
+---@return boolean? enabled
+local function relative_mouse_enabled(view)
+  local state = fullscreen
+  return state and state.view == view and state.window.get_relative_mouse_mode
+    and state.window:get_relative_mouse_mode()
+end
 
 local filter_threads = math.max(1, math.min(4, thread.get_cpu_count()))
 
@@ -563,6 +595,7 @@ function MediaView:new()
   self.playlist:hide()
   self.playlist.on_play = function(_, track) return self:play(track) end
   self.playlist.on_reset = function()
+    release_relative_mouse(self)
     if self.player then
       self.volume, self.muted = self.player.volume, self.player.muted
       self.player:close()
@@ -570,6 +603,7 @@ function MediaView:new()
     end
     self.resume_position = nil
     self.filename, self.name, self.message = nil, "Media Player", "Select a video from the playlist."
+    self:update_relative_mouse_mode()
   end
   local show_picker = self.playlist.folder.show_picker
   self.playlist.folder.show_picker = function(picker)
@@ -639,6 +673,7 @@ end
 ---@private
 ---@param err any Playback failure
 function MediaView:report_error(err)
+  release_relative_mouse(self)
   self.message = "Video playback failed: " .. tostring(err)
   if self.player then self.player:close() self.player = nil end
   core.error("%s", self.message)
@@ -769,7 +804,7 @@ end
 function MediaView:set_controls_visible(visible)
   if not visible then self.seek_hover, self.seek_hover_x = nil, nil end
   visible = visible and self.controls_enabled
-  if self.controls_visible == visible then return end
+  if self.controls_visible == visible then self:update_relative_mouse_mode() return end
   if not visible then
     self:on_mouse_left()
     self:on_mouse_capture_lost()
@@ -778,13 +813,41 @@ function MediaView:set_controls_visible(visible)
   for _, item in ipairs(self.controls) do
     if visible then item:show() else item:hide() end
   end
+  self:update_relative_mouse_mode()
   core.redraw = true
+end
+
+---Hide the idle fullscreen pointer while playback owns keyboard input.
+---@private
+function MediaView:update_relative_mouse_mode()
+  local state = fullscreen
+  if not state or state.view ~= self or not state.window.set_relative_mouse_mode
+    or not state.window.get_relative_mouse_mode then return end
+  local player = self.player
+  local wanted = not self.controls_visible and not self.closed
+    and state.mouse_inside ~= false
+    and core.window == state.window and core.active_view == self
+    and not self.mouse_is_pressed and not self.captured_widget
+    and player ~= nil and player.loaded and not player.paused and not player.ended
+    and not player.buffering and system.get_time() >= (self.controls_until or 0)
+    and system.window_has_focus(state.window)
+  -- A rejected request is retried only after visibility/playback changes.
+  if state.relative_requested == wanted then return end
+  state.relative_requested = wanted
+  if wanted then
+    if not state.window:get_relative_mouse_mode() then
+      state.relative_mouse = state.window:set_relative_mouse_mode(true) == true
+    end
+  else
+    release_relative_mouse(self)
+  end
 end
 
 ---Restore editor drawing and the window mode used before exclusive playback.
 function MediaView:exit_fullscreen()
   if not fullscreen or fullscreen.view ~= self then return end
   local state = fullscreen
+  release_relative_mouse(self)
   fullscreen = nil
   self:on_mouse_capture_lost()
   self:on_mouse_left()
@@ -821,7 +884,7 @@ function MediaView:toggle_fullscreen()
   local state = {
     view = self, root = root, window = core.window,
     draw = rawget(root, "draw"), previous_draw = root.draw,
-    restore_window = core.update_window_state() ~= "fullscreen"
+    restore_window = core.update_window_state() ~= "fullscreen", relative_mouse = false
   }
   ---Draw only this player, discarding deferred draws from hidden editor views.
   ---@param current core.rootview Root whose normal drawing is temporarily replaced
@@ -875,6 +938,7 @@ function MediaView:play(track, position)
   end
   if self.player then self.player:close() end
   self.player, self.filename, self.message = player, track.path, nil
+  self:update_relative_mouse_mode()
   self.visualizer, self.visualizer_player, self.visualizer_at, self.seek_hover = nil, nil, nil, nil
   self.render_at = nil
   local started, err = pcall(player.command, player, "loadfile", track.path, "replace")
@@ -940,12 +1004,14 @@ function MediaView:toggle_play()
     player:command("seek", "0", "absolute+exact")
     player:command("set", "pause", "no")
   else
+    if not player.paused then release_relative_mouse(self) end
     player:command("cycle", "pause")
   end
 end
 
 ---Pause the video and return to the beginning.
 function MediaView:stop()
+  release_relative_mouse(self)
   self.resume_position = nil
   if not self.player or not self.player.loaded then return end
   self.player:command("set", "pause", "yes")
@@ -1050,6 +1116,7 @@ function MediaView:update()
       core.request_update(math.max(0.05, remaining))
     end
   end
+  self:update_relative_mouse_mode()
 end
 
 ---Update audio effects only while visible and playing; never sample other applications.
@@ -1107,6 +1174,7 @@ function MediaView:pump()
     player, changed = self.player, true
   end
   self.volume, self.muted = player.volume, player.muted
+  if changed then self:update_relative_mouse_mode() end
   local visual_changed = self:update_visualizer(player, visible)
   changed = changed or visual_changed
   local video_visible = visible and (player.has_video or not player.loaded)
@@ -1262,14 +1330,19 @@ end
 ---@param dy number Vertical pointer movement
 ---@return boolean? handled Whether a widget handled the movement
 function MediaView:on_mouse_moved(x, y, dx, dy)
-  if self.controls_enabled and fullscreen and fullscreen.view == self and self:mouse_on_top(x, y)
+  local relative = relative_mouse_enabled(self)
+  if fullscreen and fullscreen.view == self
+    and (relative or self.controls_enabled and self:mouse_on_top(x, y))
     and (dx ~= 0 or dy ~= 0)
   then
+    release_relative_mouse(self)
     self.controls_until = system.get_time() + 3
     self:set_controls_visible(true)
     self:layout()
     core.request_update(3)
   end
+  -- The wake-up event's absolute coordinates are not valid for widget routing.
+  if relative then return true end
   local handled = MediaView.super.on_mouse_moved(self, x, y, dx, dy)
   local time = self:get_seek_time(x, y)
   if self.seek_hover ~= time or time and self.seek_hover_x ~= x then core.redraw = true end
@@ -1458,6 +1531,13 @@ core.open_file = function(filename, ...)
   return view
 end
 
+local exit = core.exit
+---Release fullscreen input before quitting or persisting the window for restart.
+function core.exit(quit_fn, force)
+  if force and fullscreen then fullscreen.view:exit_fullscreen() end
+  return exit(quit_fn, force)
+end
+
 local on_event = core.on_event
 ---Route exclusive playback input to the player and restore the editor on dismissal.
 ---@param event string Core event name
@@ -1466,6 +1546,7 @@ local on_event = core.on_event
 core.on_event = function(event, ...)
   if fullscreen then
     local view = fullscreen.view
+    local relative = relative_mouse_enabled(view)
     if event == "keypressed" and select(1, ...) == "escape" then
       view:exit_fullscreen()
       return true
@@ -1474,9 +1555,25 @@ core.on_event = function(event, ...)
     then
       view:exit_fullscreen()
     elseif event == "mousemoved" then
-      fullscreen.root.mouse.x, fullscreen.root.mouse.y = ...
+      if not relative then
+        fullscreen.root.mouse.x, fullscreen.root.mouse.y = ...
+        fullscreen.mouse_inside = view:mouse_on_top(...)
+      end
       view:layout()
       view:on_mouse_moved(...)
+      return true
+    elseif event == "mousepressed" and relative then
+      local button = ...
+      fullscreen.relative_button = button
+      release_relative_mouse(view)
+      view.controls_until = system.get_time() + 3
+      view:set_controls_visible(true)
+      if button == "left" then view:toggle_play() end
+      return true
+    elseif event == "mousereleased"
+      and (relative or fullscreen.relative_button == select(1, ...))
+    then
+      fullscreen.relative_button = nil
       return true
     elseif event == "mousepressed" then
       view:layout()
@@ -1487,6 +1584,8 @@ core.on_event = function(event, ...)
       view:on_mouse_released(...)
       return true
     elseif event == "mouseleft" then
+      fullscreen.mouse_inside = false
+      release_relative_mouse(view)
       view:set_controls_visible(false)
       return true
     elseif event == "filedropped" then

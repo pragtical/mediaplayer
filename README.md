@@ -91,6 +91,9 @@ Hover over the seek bar to see the timestamp at the pointer position.
 | Escape | Leave fullscreen |
 
 Fullscreen controls appear on mouse movement and hide after three seconds.
+On editors with relative mouse support, the pointer also hides while fullscreen
+media is playing with controls hidden. Mouse movement restores it and the
+controls; pausing or leaving fullscreen restores the pointer.
 Run `media-player:toggle-controls` to show or hide transport controls while
 keeping playback shortcuts available. Fullscreen controls retain their usual
 three-second timeout and reveal on mouse movement.

@@ -21,6 +21,7 @@ local Visualizer = require "plugins.mediaplayer.visualizer"
 ---@field library string Optional path to the libmpv shared library
 ---@field directory string Default directory to scan in new player tabs
 ---@field scan_images boolean Include supported images in directory scans
+---@field default_player boolean Use Media Player by default for supported audio and images
 ---@field hardware_decoding boolean Try copy-back hardware decoding with software fallback
 ---@field hdr_to_sdr boolean Tone-map HDR video to the renderer's SDR color space
 ---@field max_fps number Maximum video frames per second; 0 follows the editor's configured limit
@@ -39,7 +40,7 @@ local Visualizer = require "plugins.mediaplayer.visualizer"
 config.plugins.mediaplayer = common.merge({
   library = "", directory = "", hardware_decoding = true, max_fps = 0, max_height = 1080, volume = 80,
   scaler = "auto", cache_mode = "yes", cache_size = 200, cache_wait = 20, cache_initial = true,
-  hdr_to_sdr = false, scan_images = false,
+  hdr_to_sdr = false, scan_images = false, default_player = false,
   audio_display = "both", audio_effect = "warp", audio_visualizer_fps = 30,
   audio_effect_speed = 1, audio_effect_color = nil,
   config_spec = {
@@ -52,6 +53,10 @@ config.plugins.mediaplayer = common.merge({
     {
       label = "Scan Images", path = "scan_images", type = "toggle", default = false,
       description = "Include supported images in new directory scans."
+    },
+    {
+      label = "Default Audio and Image Viewer", path = "default_player", type = "toggle", default = false,
+      description = "Open supported audio and image files in Media Player from the treeview, file pickers and other normal file opens."
     },
     {
       label = "libmpv Library", path = "library", type = "file", default = "",
@@ -580,6 +585,7 @@ end
 ---@field volume number Playback volume retained without a native player
 ---@field muted boolean Mute state retained without a native player
 ---@field resume_position number? Saved bookmark, consumed on Play
+---@field playlist_width number? Preferred panel width before UI scaling
 local MediaView = Widget:extend()
 
 ---Create an empty video tab and start a weakly owned event pump.
@@ -705,7 +711,8 @@ function MediaView:get_state()
     position_seconds = player and player.position or self.resume_position or 0,
     volume = (player or self).volume, muted = (player or self).muted,
     repeat_all = playlist.repeat_all, shuffle = playlist.shuffle,
-    playlist_visible = self.playlist_visible, controls_enabled = self.controls_enabled
+    playlist_visible = self.playlist_visible, playlist_width = self.playlist_width,
+    controls_enabled = self.controls_enabled
   }
 end
 
@@ -715,6 +722,8 @@ end
 function MediaView.from_state(state)
   local view = MediaView()
   local playlist = view.playlist
+  view.playlist_width = type(state.playlist_width) == "number" and state.playlist_width > 0
+    and state.playlist_width or nil
   playlist.folder:set_path(state.directory or "")
   playlist.filter:set_text(state.filter or "")
   playlist.filter_due, playlist.directory_due = nil, nil
@@ -1068,7 +1077,8 @@ end
 function MediaView:layout()
   local pad, gap = style.padding.x, style.padding.y
   local _, _, available_width, available_height = self:get_bounds()
-  local panel_width = self.playlist.visible and math.min(400 * SCALE, available_width * 0.42) or 0
+  local panel_width = self.playlist.visible and math.min((self.playlist_width or 400) * SCALE,
+    math.max(available_width / 2, available_width - 240 * SCALE)) or 0
   self.video_width = available_width - panel_width
   self.playlist:set_position(self.video_width, 0)
   self.playlist:set_size(panel_width, available_height)
@@ -1312,7 +1322,11 @@ end
 ---Draw the normal widget or fullscreen video with controls overlaid on top.
 ---@return boolean drawn Whether the player was drawn
 function MediaView:draw()
-  if not fullscreen or fullscreen.view ~= self then return MediaView.super.draw(self) end
+  if not fullscreen or fullscreen.view ~= self then
+    local drawn = MediaView.super.draw(self)
+    if drawn then self.playlist:draw_tooltip() end
+    return drawn
+  end
   local x, y, width, height = self:get_bounds()
   core.push_clip_rect(x, y, width, height)
   self:draw_background(style.background)
@@ -1320,6 +1334,7 @@ function MediaView:draw()
     for _, item in ipairs(self.controls) do item:draw() end
   end
   if self.playlist.visible then self.playlist:draw() end
+  self.playlist:draw_tooltip()
   core.pop_clip_rect()
   return true
 end
@@ -1498,12 +1513,13 @@ end
 
 local default_view
 local open_file = core.open_file
----Route supported videos into a shared player tab, retaining other file handlers.
+---Route videos and optionally audio/images into a shared player tab.
 ---@param filename string File to open through the editor
 ---@param ... any Arguments forwarded unchanged to the existing file handler
 ---@return core.view? view Opened view, or the prior handler's result
 core.open_file = function(filename, ...)
-  if not Playlist.is_supported(filename) then return open_file(filename, ...) end
+  local all_media = config.plugins.mediaplayer.default_player == true
+  if not Playlist.is_supported(filename, all_media, all_media) then return open_file(filename, ...) end
   local view = core.active_view
   while view.parent do view = view.parent end
   if not view:is(MediaView) or view.closed or not view.controls_enabled then view = default_view end

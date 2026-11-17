@@ -33,9 +33,13 @@ the Lua plugin with a compatible system library.
 
 Supported video files open in Media Player from the treeview, file picker,
 drag-and-drop and other normal editor file-open operations. Successive files
-share a player tab and append to its playlist. Text, image and audio files
-keep their existing handlers. You can also choose **Tools → Open Media Player**
-or run `media-player:open` to create a separate player.
+share a player tab and append to its playlist. Audio and image files use the
+editor's existing viewers by default. Enable **Default Audio and Image Viewer**
+in Settings → Plugins → Media Player to open supported audio and images in
+Media Player too. This applies immediately to treeview clicks, file pickers
+and other normal file opens, independently of **Scan Images**.
+You can also choose **Tools → Open Media Player** or run `media-player:open`
+to create a separate player.
 Opening the player creates an empty tab; use its **Open** button to choose media.
 Set **Default Directory** in Settings → Plugins → Media Player to scan a media
 folder automatically in new tabs, without starting playback.
@@ -52,6 +56,10 @@ that folder for audio and video, without starting playback.
 
 The playlist button shows a panel on the right. Choose or type a directory to
 scan recursively for audio and video, or drop a directory on the player.
+Drag the panel's left edge to resize it; double-click that edge to reset its
+width. Use the horizontal scrollbar or Shift+wheel to read long track names.
+Hover a track to see its full absolute path. Filtering matches names and
+folder paths, including those hidden from the list.
 Scanning skips directory symlinks and does not start playback. Select a row
 to play it, or use the filter to find a title or folder.
 Enable **Scan Images** in Settings → Plugins → Media Player to include supported

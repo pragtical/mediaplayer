@@ -51,6 +51,51 @@ end
 ---@field list widget.listbox Visible playlist rows
 local Playlist = Widget:extend()
 
+-- Keep the full column extent for scrolling, row selection and highlights.
+local TrackList = ListBox:extend()
+function TrackList:get_h_scrollable_size()
+  local width = 0
+  for _, column in ipairs(self.columns) do width = width + column.width + style.padding.x end
+  return math.max(self.size.x, width + style.expanded_scrollbar_size)
+end
+
+function TrackList:get_scrollable_size()
+  local height = TrackList.super.get_scrollable_size(self)
+  if self:get_h_scrollable_size() > self.size.x then height = height + style.expanded_scrollbar_size end
+  return height
+end
+
+function TrackList:draw()
+  self.largest_row = self:get_h_scrollable_size()
+  local drawn = TrackList.super.draw(self)
+  self.largest_row = self:get_h_scrollable_size()
+  return drawn
+end
+
+function TrackList:on_mouse_moved(x, y, dx, dy)
+  self.largest_row = self:get_h_scrollable_size()
+  local index = not self.mouse_is_pressed and self:mouse_on_top(x, y)
+    and y >= self.position.y + self:get_font():get_height() + style.padding.y
+    and not self:scrollbar_overlaps_point(x, y) and self:get_row_at_position(x, y)
+  self.parent:hover_track(index and self.row_data[index] or nil, x, y)
+  return TrackList.super.on_mouse_moved(self, x, y, dx, dy)
+end
+
+function TrackList:on_mouse_pressed(...)
+  self.parent:hover_track(nil)
+  return TrackList.super.on_mouse_pressed(self, ...)
+end
+
+function TrackList:on_mouse_leave(...)
+  self.parent:hover_track(nil)
+  return TrackList.super.on_mouse_leave(self, ...)
+end
+
+function TrackList:on_mouse_wheel(...)
+  self.parent:hover_track(nil)
+  return TrackList.super.on_mouse_wheel(self, ...)
+end
+
 ---Check extensions without opening media or initializing the native runtime.
 ---Audio and images are opt-in so normal opens keep the editor's own handlers.
 ---@param path string
@@ -65,7 +110,7 @@ function Playlist.is_supported(path, include_audio, include_images)
     or include_images == true and image_extensions[ext] == true)
 end
 
----Draw a clipped title, using the current track's accent without widening the row.
+---Draw the complete title and measure it when adding or scaling rows.
 ---@param list widget.listbox
 ---@param index integer
 ---@param x number
@@ -77,34 +122,11 @@ end
 ---@return number height
 local function track_column(list, index, x, y, font, color, only_calc)
   local track = list.row_data[index]
-  local width = list.columns[1].width
   if not only_calc then
-    core.push_clip_rect(x, y, math.max(0, width), font:get_height())
     renderer.draw_text(font, track.name, x, y,
       track == list.parent.current and style.accent or color)
-    core.pop_clip_rect()
   end
-  return width, font:get_height()
-end
-
----Draw the containing folder within the remaining column space.
----@param list widget.listbox
----@param index integer
----@param x number
----@param y number
----@param font renderer.font
----@param color renderer.color
----@param only_calc boolean
----@return number width
----@return number height
-local function folder_column(list, index, x, y, font, color, only_calc)
-  local width = list.columns[2].width
-  if not only_calc then
-    core.push_clip_rect(x, y, math.max(0, width), font:get_height())
-    renderer.draw_text(font, list.row_data[index].folder, x, y, color)
-    core.pop_clip_rect()
-  end
-  return width, font:get_height()
+  return only_calc and font:get_width(track.name) or list.columns[1].width, font:get_height()
 end
 
 ---Create a directory picker, filter and cached, scrollable track list.
@@ -124,9 +146,8 @@ function Playlist:new(parent)
   self.folder.on_change = function() self.directory_due = system.get_time() + 0.4 end
   self.filter = TextBox(self, "", "Filter tracks...", {clearable = true})
   self.filter.on_change = function() self.filter_due = system.get_time() + 0.15 end
-  self.list = ListBox(self)
-  self.list:add_column("Track", 240, false)
-  self.list:add_column("Folder", 100, false)
+  self.list = TrackList(self)
+  self.list:add_column("Track")
   self.list.on_row_click = function(_, _, track) self:play(track) end
 end
 
@@ -153,7 +174,7 @@ end
 function Playlist:add_row(track)
   local filter = self.filter:get_text():lower()
   if filter ~= "" and not (track.name .. " " .. track.folder):lower():find(filter, 1, true) then return end
-  self.list:add_row({track_column, ListBox.COLEND, folder_column}, track)
+  self.list:add_row({track_column}, track)
   if track == self.current then self.list:set_selected(#self.list.rows) end
 end
 
@@ -175,6 +196,7 @@ end
 
 ---Rebuild the filtered list after a debounced text change.
 function Playlist:filter_tracks()
+  self:hover_track(nil)
   self.list:clear()
   self.list.scroll.y, self.list.scroll.to.y = 0, 0
   for _, track in ipairs(self.tracks) do self:add_row(track) end
@@ -195,6 +217,7 @@ function Playlist:scan(path)
     return false
   end
   self:on_reset()
+  self:hover_track(nil)
   self.generation = self.generation + 1
   local generation = self.generation
   local include_images = config.plugins.mediaplayer.scan_images == true
@@ -315,8 +338,15 @@ end
 
 ---Cancel pending scans when the owning player closes.
 function Playlist:close()
+  self:release_mouse()
+  self:hover_track(nil)
   self.closed, self.scanning = true, false
   self.generation = self.generation + 1
+end
+
+function Playlist:hide()
+  self:hover_track(nil)
+  return Playlist.super.hide(self)
 end
 
 ---Apply debounced inputs and refresh row geometry only when the panel size changes.
@@ -346,18 +376,129 @@ function Playlist:update()
   y = self.filter:get_bottom() + gap
   self.list:set_position(pad, y)
   self.list:set_size(width, math.max(0, self.size.y - y - height - gap * 2))
-  local content = math.max(0, self.list.size.x - pad * 2 - style.expanded_scrollbar_size)
-  self.list.columns[1].width, self.list.columns[2].width = content * 0.7, content * 0.3
-  if self.list_width ~= width or self.list_scale ~= SCALE then
-    self.list_width, self.list_scale, self.list_height = width, SCALE, nil
-    self.list:recalc_all_rows()
-  end
   if self.list_height ~= self.list.size.y or self.list_row_count ~= #self.list.rows then
     self.list_height, self.list_row_count = self.list.size.y, #self.list.rows
     self.list.visible_rendered = false
     self.list:set_visible_rows()
   end
+  if self.tooltip_due then
+    if now >= self.tooltip_due then
+      self.tooltip_due = nil
+      self.tooltip_ready = true
+      core.redraw = true
+    else core.request_update(self.tooltip_due - now) end
+  end
   return true
+end
+
+---Delay row details until the pointer rests, avoiding work during playback.
+function Playlist:hover_track(track, x, y)
+  if self.hovered_track == track then return end
+  self.hovered_track, self.tooltip_lines, self.tooltip_ready = track, nil, false
+  self.tooltip_due = track and system.get_time() + 0.4 or nil
+  self.tooltip_x, self.tooltip_y = x, y
+  if track then core.request_update(0.4) end
+  core.redraw = true
+end
+
+---Draw cached, character-wrapped details within the player's presentation.
+function Playlist:draw_tooltip()
+  local track = self.hovered_track
+  if not self.visible or not self.tooltip_ready or not track or self.resizing then return end
+  local bx, by, bw, bh = self.parent:get_bounds()
+  local font, pad, gap = style.font, style.padding.x, style.padding.y
+  local limit = math.max(1, math.min(720 * SCALE, bw - pad * 4))
+  if not self.tooltip_lines or self.tooltip_limit ~= limit or self.tooltip_scale ~= SCALE
+    or self.tooltip_font ~= font or self.tooltip_font_size ~= font:get_size()
+  then
+    local lines, widest = {}, 0
+    local line, width, split = "", 0, nil
+    for char in common.utf8_chars(track.path) do
+      local size = font:get_width(char)
+      if line ~= "" and (width + size > limit or char == "\n") then
+        local boundary = char ~= "\n" and split or #line
+        local part = line:sub(1, boundary)
+        lines[#lines + 1], widest = part, math.max(widest, font:get_width(part))
+        line, split = line:sub((boundary or #line) + 1), nil
+        width = font:get_width(line)
+      end
+      if char ~= "\n" then line, width = line .. char, width + size end
+      if char:find("[%s/\\]") then split = #line end
+    end
+    lines[#lines + 1], widest = line, math.max(widest, font:get_width(line))
+    self.tooltip_lines, self.tooltip_width = lines, math.ceil(widest + pad * 2)
+    self.tooltip_limit, self.tooltip_scale = limit, SCALE
+    self.tooltip_font, self.tooltip_font_size = font, font:get_size()
+  end
+  local width = self.tooltip_width
+  local height = #self.tooltip_lines * font:get_height() + gap * 2
+  local x = common.round(common.clamp(self.tooltip_x - width, bx, bx + bw - width))
+  local y = self.tooltip_y + gap * 2
+  if y + height > by + bh then y = math.max(by, self.tooltip_y - height - gap) end
+  y = common.round(y)
+  renderer.draw_rect(x, y, width, height, style.divider)
+  renderer.draw_rect(x + 1, y + 1, width - 2, height - 2, style.background3)
+  core.push_clip_rect(x, y, width, math.min(height, by + bh - y))
+  for i, line in ipairs(self.tooltip_lines) do
+    renderer.draw_text(font, line, x + pad, common.round(y + gap + (i - 1) * font:get_height()), style.text)
+  end
+  core.pop_clip_rect()
+end
+
+---Resize the owning panel using Widget's existing mouse capture.
+function Playlist:on_mouse_pressed(button, x, y, clicks)
+  if button == "left" and x <= self.position.x + 6 * SCALE and self:mouse_on_top(x, y) then
+    self:hover_track(nil)
+    if clicks == 2 then
+      self.parent.playlist_width = nil
+      self.parent:layout()
+    else
+      self.resize_offset, self.resizing = x - self.position.x, true
+      self:capture_mouse(false, button)
+    end
+    core.redraw = true
+    return true
+  end
+  return Playlist.super.on_mouse_pressed(self, button, x, y, clicks)
+end
+
+function Playlist:on_mouse_moved(x, y, dx, dy)
+  if self.resizing then
+    local bx, _, width = self.parent:get_bounds()
+    local maximum = math.max(width / 2, width - 240 * SCALE)
+    self.parent.playlist_width = common.clamp(bx + width - x + self.resize_offset,
+      math.min(240 * SCALE, maximum), maximum) / SCALE
+    self.parent:layout()
+    core.redraw = true
+  else Playlist.super.on_mouse_moved(self, x, y, dx, dy) end
+  if self.resizing or self:mouse_on_top(x, y) and x <= self.position.x + 6 * SCALE then
+    -- RootView reapplies its top-level view's cursor after child input.
+    self.parent.cursor = "sizeh"
+    core.request_cursor("sizeh")
+  elseif self.parent.cursor == "sizeh" then
+    self.parent.cursor = "arrow"
+    core.request_cursor("arrow")
+  end
+end
+
+function Playlist:on_mouse_leave(...)
+  if self.parent.cursor == "sizeh" then
+    self.parent.cursor = "arrow"
+    core.request_cursor("arrow")
+  end
+  return Playlist.super.on_mouse_leave(self, ...)
+end
+
+function Playlist:on_mouse_released(button, x, y)
+  if self.resizing and button == "left" then self:release_mouse() return true end
+  return Playlist.super.on_mouse_released(self, button, x, y)
+end
+
+function Playlist:on_mouse_capture_lost()
+  self.resizing = nil
+  self.parent.cursor = "arrow"
+  core.request_cursor("arrow")
+  Playlist.super.on_mouse_capture_lost(self)
 end
 
 ---Draw the panel separator and clipped scan status; child widgets draw their own content.
@@ -365,7 +506,7 @@ end
 function Playlist:draw_background(color)
   local x, y, width, height = self.position.x, self.position.y, self.size.x, self.size.y
   renderer.draw_rect(x, y, width, height, color)
-  renderer.draw_rect(x, y, math.max(1, SCALE), height, style.divider)
+  renderer.draw_rect(x, y, math.max(1, SCALE), height, self.resizing and style.accent or style.divider)
   local text = #self.tracks .. " tracks" .. (self.scanning and " — Scanning..." or "")
   if self.scan_skipped > 0 then text = text .. " — " .. self.scan_skipped .. " unreadable" end
   core.push_clip_rect(x, y, width, height)

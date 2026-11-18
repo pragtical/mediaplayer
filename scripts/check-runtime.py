@@ -100,7 +100,8 @@ def main():
         if platform.system() == "Linux":
             os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
             audio = "sdl"
-        for name, value in {"vo": "libmpv", "ao": audio, "terminal": "no", "config": "no", "keep-open": "yes", "video-timing-offset": "0", "hwdec": "auto-copy", "cache": "yes", "demuxer-max-bytes": "209715200", "cache-pause-wait": "20", "cache-pause-initial": "yes"}.items():
+        # Keep finished fixtures visible without pausing subsequent files.
+        for name, value in {"vo": "libmpv", "ao": audio, "terminal": "no", "config": "no", "keep-open": "yes", "keep-open-pause": "no", "video-timing-offset": "0", "hwdec": "auto-copy", "cache": "yes", "demuxer-max-bytes": "209715200", "cache-pause-wait": "20", "cache-pause-initial": "yes"}.items():
             check(lib.mpv_set_option_string(handle, name.encode(), value.encode()))
         check(lib.mpv_initialize(handle))
         check(lib.mpv_observe_property(handle, 2, b"hwdec-current", 1))

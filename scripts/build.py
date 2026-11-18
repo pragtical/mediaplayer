@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -170,23 +171,38 @@ def run(args, cwd, env):
 def source(name, spec, downloads, sources):
     """Fetch a checksum-pinned archive and extract only validated data members."""
     archive = downloads / spec["filename"]
+    expected = spec["sha256"]
+    if archive.exists():
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        if digest != expected:
+            print(f"Discarding invalid cached source {archive}: "
+                  f"expected {expected}, got {digest}", flush=True)
+            archive.unlink()
     if not archive.exists():
         temporary = archive.with_name(archive.name + ".partial")
         for attempt in range(3):
             try:
-                request = urllib.request.Request(spec["url"], headers={"User-Agent": "Pragtical-MediaPlayer"})
+                headers = {"User-Agent": "Pragtical-MediaPlayer", "Accept-Encoding": "identity"}
+                if attempt:
+                    headers["Cache-Control"] = "no-cache"
+                request = urllib.request.Request(spec["url"], headers=headers)
                 with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as output:
+                    content_type = response.headers.get("Content-Type", "unknown")
                     shutil.copyfileobj(response, output)
+                digest = hashlib.sha256(temporary.read_bytes()).hexdigest()
+                if digest != expected:
+                    raise ValueError(f"Source checksum mismatch: {archive}; "
+                                     f"expected {expected}, got {digest} "
+                                     f"({temporary.stat().st_size} bytes, {content_type})")
+                # Never leave an unverified response in the download cache.
                 temporary.replace(archive)
                 break
-            except OSError:
+            except (OSError, http.client.HTTPException, ValueError) as error:
                 temporary.unlink(missing_ok=True)
                 if attempt == 2:
-                    raise
+                    raise SystemExit(f"Unable to download verified source: {error}") from error
+                print(f"Retrying {archive.name}: {error}", flush=True)
                 time.sleep(2)
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    if digest != spec["sha256"]:
-        raise SystemExit(f"Source checksum mismatch: {archive}")
     destination = sources / name
     marker = destination / ".source-sha256"
     if marker.exists():
